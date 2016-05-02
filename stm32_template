@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+
+# The folder containing ARM CMSIS, i.e. folders CMSIS and Device.
+ARM_CMSIS=~/stm32/ARM_CMSIS
+# The generic makefile.
+MAKEFILE=~/stm32/generic/makefile
+# Folder containing STM32Cubes, for example STM32Cube_F0
+STM32CUBES=~/stm32
+
+echo "Hello! This script will interactively create a STM32 project."
+echo "Config variables:"
+echo "ARM CMSIS location: $ARM_CMSIS"
+echo "Generic makefile: $MAKEFILE"
+echo "Location of STM32Cubes: $STM32CUBES"
+echo ""
+read -p "Please type project name: " PROJ
+echo ""
+echo "Creating project $PROJ..."
+
+mkdir $PROJ || { echo "Quitting, since project already exists." && exit 1; }
+# At this point, we can safely abort by removing everything in the
+# $PROJ directory.
+
+function damnit {
+	echo "Aborting."
+	rm -rif $PROJ
+	exit 1
+}
+
+mkdir -p $PROJ/{inc,obj,lnk,src/system}
+
+cp $MAKEFILE $PROJ/makefile || damnit "Makefile not found."
+
+echo ""
+echo "Listing possible architecture choices:"
+echo ""
+find $ARM_CMSIS/Device/ARM/ -maxdepth 1 -mindepth 1 -name ARM* -exec basename {} \;
+read -p "Please choose architecture (one of above): " ARCH
+echo "You chose $ARCH."
+echo "Copying linker script and startup assembly file..."
+cp $ARM_CMSIS/Device/ARM/$ARCH/Source/GCC/gcc_arm.ld $PROJ/lnk || damnit
+cp $ARM_CMSIS/Device/ARM/$ARCH/Source/GCC/startup*.S $PROJ/src/system || damnit
+
+echo "Listing possible core files:"
+echo ""
+find $ARM_CMSIS/CMSIS/Include -maxdepth 1 -mindepth 1 -regex .*/core_cm[0-9].* -exec basename {} \;
+read -p "Please choose one fitting your project: " CORE
+echo "You chose $CORE."
+echo "Copying $CORE and cmsis_gcc.h..."
+cp $ARM_CMSIS/CMSIS/Include/{$CORE,cmsis_gcc.h} $PROJ/inc || damnit
+
+echo "Listing STM32 Cubes:"
+echo ""
+find $STM32CUBES -maxdepth 1 -mindepth 1 -name STM32Cube* -exec basename {} \;
+read -p "Please choose one fitting your project: " CUBE
+echo "You chose $CUBE."
+
+echo "Listing include files:"
+echo ""
+find $STM32CUBES/$CUBE/Drivers/CMSIS/Device/ST/*/Include/ -maxdepth 1 -mindepth 1 -name stm32* -exec basename {} \;
+read -p "Please choose the most generic one - probably ending in 'xx.h': " GENERIC
+echo "You chose $GENERIC."
+cp $STM32CUBES/$CUBE/Drivers/CMSIS/Device/ST/*/Include/$GENERIC $PROJ/inc || damnit
+
+echo "Now read the file and find macro (for example STM32F405xx) and include file (for example stm32f405xx.h) corresponding to your device."
+read -p "Press enter to continue." DUMMY
+less $STM32CUBES/$CUBE/Drivers/CMSIS/Device/ST/*/Include/$GENERIC
+read -p "Type the macro, for example STM32F405xx: " MACRO
+echo "You chose $MACRO."
+read -p "Type the include file, for example stm32f405xx.h: " SPECIFIC
+echo "You chose $SPECIFIC."
+cp $STM32CUBES/$CUBE/Drivers/CMSIS/Device/ST/*/Include/$SPECIFIC $PROJ/inc || damnit
+
+echo "Creating simple blink file - hopefully it compiles."
+cat > $PROJ/src/main.c << EOF
+#include <$GENERIC>
+void SystemInit(void){}
+void delay(int x){
+	for(volatile int i=0;i<x;i++){
+		i=i;
+	}
+}
+int main(void){
+	SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOAEN);
+	SET_BIT(GPIOA->MODER, GPIO_MODER_MODER4_0);
+	while(1){
+		GPIOA->ODR ^= 1<<4; 
+		delay(50000);
+	}
+}
+EOF
+
+echo "Patching linker script..."
+read -p "How big in bytes is flash: " FLASH
+sed -i "s/\(FLASH.*LENGTH\\s*=\\s*\)[0-9a-fx]\\+.*\$/\1$FLASH/g" $PROJ/lnk/gcc_arm.ld
+read -p "How big in bytes is RAM: " RAM
+sed -i "s/\(RAM.*LENGTH\\s*=\\s*\)[0-9a-fx]\\+.*\$/\1$RAM/g" $PROJ/lnk/gcc_arm.ld
+
+echo "Patching makefile..."
+sed -i "s/REPLACE_ME_DSTM/-D$MACRO/g" $PROJ/makefile
+sed -i "s/REPLACE_ME_PROJ/$PROJ/g" $PROJ/makefile
+read -p "How big in bytes the stack is: " STACK
+sed -i "s/REPLACE_ME_STACKSIZE/-D__STACK_SIZE=$STACK/g" $PROJ/makefile
+read -p "How big in bytes the heap is: " HEAP
+sed -i "s/REPLACE_ME_HEAPSIZE/-D__HEAP_SIZE=$HEAP/g" $PROJ/makefile
+read -p "Which mcpu to use - for example cortex-m0: " MCPU
+sed -i "s/REPLACE_ME_MCPU/-mcpu=$MCPU/g" $PROJ/makefile
+read -p "Which mode to use - thumb or arm: " THUMB
+sed -i "s/REPLACE_ME_THUMB/-m$THUMB/g" $PROJ/makefile
+read -p "Which float abi to use: soft, softfp or hard: " FLOAT
+sed -i "s/REPLACE_ME_FLOAT/-mfloat-abi=$FLOAT/g" $PROJ/makefile
+
+echo "Patching core file..."
+sed -i "s/\"core_cmInstr.h\"/<cmsis_gcc.h>/g" $PROJ/inc/$CORE
+sed -i "s/\"core_cmFunc.h\"/<cmsis_gcc.h>/g" $PROJ/inc/$CORE
+touch $PROJ/inc/.dummy_empty_include.h
+sed -i "s/\"system_stm32f0xx.h\"/<.dummy_empty_include.h>/g" $PROJ/inc/$SPECIFIC
+
+
+
+

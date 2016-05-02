@@ -1,0 +1,15 @@
+exampleSTM32Project
+ARMCM0
+core_cm0.h
+STM32Cube_F0
+stm32f0xx.h
+
+STM32F030x6
+stm32f030x6.h
+0x4000
+0x1000
+0x400
+0x0
+cortex-m0
+thumb
+soft
