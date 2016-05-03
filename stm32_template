@@ -39,7 +39,8 @@ read -p "Please choose architecture (one of above): " ARCH
 echo "You chose $ARCH."
 echo "Copying linker script and startup assembly file..."
 cp $ARM_CMSIS/Device/ARM/$ARCH/Source/GCC/gcc_arm.ld $PROJ/lnk || damnit
-cp $ARM_CMSIS/Device/ARM/$ARCH/Source/GCC/startup*.S $PROJ/src/system || damnit
+# Don't copy this startup file, it's too generic! Interrupt vectors are broken.
+# cp $ARM_CMSIS/Device/ARM/$ARCH/Source/GCC/startup*.S $PROJ/src/system || damnit
 
 echo "Listing possible core files:"
 echo ""
@@ -55,26 +56,26 @@ find $STM32CUBES -maxdepth 1 -mindepth 1 -name STM32Cube* -exec basename {} \;
 read -p "Please choose one fitting your project: " CUBE
 echo "You chose $CUBE."
 
-echo "Listing include files:"
-echo ""
-find $STM32CUBES/$CUBE/Drivers/CMSIS/Device/ST/*/Include/ -maxdepth 1 -mindepth 1 -name stm32* -exec basename {} \;
-read -p "Please choose the most generic one - probably ending in 'xx.h': " GENERIC
-echo "You chose $GENERIC."
+GENERIC=$(ls -d $STM32CUBES/$CUBE/Drivers/CMSIS/Device/ST/* | tr '[A-Z]' '[a-z]')
+GENERIC=$(basename $GENERIC).h
+echo "Guessing name of the most generic include: $GENERIC - copying it."
 cp $STM32CUBES/$CUBE/Drivers/CMSIS/Device/ST/*/Include/$GENERIC $PROJ/inc || damnit
 
-echo "Now read the file and find macro (for example STM32F405xx) and include file (for example stm32f405xx.h) corresponding to your device."
+echo "Now read the file and find macro (for example STM32F405xx) corresponding to your device."
 read -p "Press enter to continue." DUMMY
 less $STM32CUBES/$CUBE/Drivers/CMSIS/Device/ST/*/Include/$GENERIC
 read -p "Type the macro, for example STM32F405xx: " MACRO
+DEVICE=$(echo "$MACRO" | tr '[A-Z]' '[a-z]')
 echo "You chose $MACRO."
-read -p "Type the include file, for example stm32f405xx.h: " SPECIFIC
-echo "You chose $SPECIFIC."
-cp $STM32CUBES/$CUBE/Drivers/CMSIS/Device/ST/*/Include/$SPECIFIC $PROJ/inc || damnit
+echo "Device-specific includes are therefore called $DEVICE."
+echo "Copying $DEVICE.h"
+cp $STM32CUBES/$CUBE/Drivers/CMSIS/Device/ST/*/Include/$DEVICE.h $PROJ/inc || damnit
+echo "Copying startup_$DEVICE.h"
+cp $STM32CUBES/$CUBE/Drivers/CMSIS/Device/ST/*/Source/Templates/gcc/startup_$DEVICE.s $PROJ/src/system/startup_$DEVICE.S
 
 echo "Creating simple blink file - hopefully it compiles."
 cat > $PROJ/src/main.c << EOF
 #include <$GENERIC>
-void SystemInit(void){}
 void delay(int x){
 	for(volatile int i=0;i<x;i++){
 		i=i;
@@ -88,13 +89,25 @@ int main(void){
 		delay(50000);
 	}
 }
+void SystemInit(void){}
 EOF
 
 echo "Patching linker script..."
+sed -i '1s/^/__Vectors = g_pfnVectors; \/* Compatibility with ST startup script *\/\n/' $PROJ/lnk/gcc_arm.ld
+cat >> $PROJ/lnk/gcc_arm.ld << EOF
+/* Compatibility with ST startup script */
+_estack = __StackTop;
+_sidata = __etext;
+_sdata = __data_start__;
+_edata = __data_end__;
+_sbss = __bss_start__;
+_ebss = __bss_end__;
+EOF
 read -p "How big in bytes is flash: " FLASH
 sed -i "s/\(FLASH.*LENGTH\\s*=\\s*\)[0-9a-fx]\\+.*\$/\1$FLASH/g" $PROJ/lnk/gcc_arm.ld
 read -p "How big in bytes is RAM: " RAM
 sed -i "s/\(RAM.*LENGTH\\s*=\\s*\)[0-9a-fx]\\+.*\$/\1$RAM/g" $PROJ/lnk/gcc_arm.ld
+sed -i "s/\.vectors/\.isr_vector/g" $PROJ/lnk/gcc_arm.ld
 
 echo "Patching makefile..."
 sed -i "s/REPLACE_ME_DSTM/-D$MACRO/g" $PROJ/makefile
@@ -112,9 +125,8 @@ sed -i "s/REPLACE_ME_FLOAT/-mfloat-abi=$FLOAT/g" $PROJ/makefile
 
 echo "Patching core file..."
 sed -i "s/\"core_cmInstr.h\"/<cmsis_gcc.h>/g" $PROJ/inc/$CORE
-sed -i "s/\"core_cmFunc.h\"/<cmsis_gcc.h>/g" $PROJ/inc/$CORE
-touch $PROJ/inc/.dummy_empty_include.h
-sed -i "s/\"system_stm32f0xx.h\"/<.dummy_empty_include.h>/g" $PROJ/inc/$SPECIFIC
+sed -i "/\"core_cmFunc.h\"/d" $PROJ/inc/$CORE
+sed -i "/\"system_stm32f0xx.h\"/d" $PROJ/inc/$DEVICE.h
 
 
 
