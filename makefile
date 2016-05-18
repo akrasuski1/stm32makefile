@@ -20,8 +20,9 @@ FLAGS+=$(OPT)
 FLAGS+=$(DBG)
 FLAGS+=$(WARN)
 FLAGS+=-ffunction-sections 
+FLAGS+=-fno-exceptions -fno-rtti
 FLAGS+=-MMD -MP
-FLAGS+=REPLACE_ME_DSTM REPLACE_ME_STACKSIZE REPLACE_ME_HEAPSIZE
+FLAGS+=REPLACE_ME_DSTM REPLACE_ME_STACKSIZE REPLACE_ME_HEAPSIZE REPLACE_ME_FCPU
 
 C_FLAGS:=   $(FLAGS) -std=c11
 CPP_FLAGS:= $(FLAGS) -std=c++14
@@ -29,9 +30,9 @@ S_FLAGS:=   $(FLAGS)
 
 LD_FLAGS:=$(PROCESSOR)
 LD_FLAGS+=-T"lnk/gcc_arm.ld" -Wl,--gc-sections 
-LD_FLAGS+=-fno-exceptions -fno-rtti
+LD_FLAGS+=-fno_exceptions -fno-rtti
 
-LIBS:=-lm
+LIBS:=-lm -lc_nano
 
 #----------------------------------------------------------------
 
@@ -61,6 +62,7 @@ flash: all
 	@echo "Flashing..."
 	$(STFLASH) --reset write $(BINFILE) 0x08000000
 	@echo
+	@echo "Remember to reset the board - it might be not fully reset."
 
 $(C_OBJECTS): $(OBJ)/%.o: $(SRC)/%.c
 	@echo "Compiling $<"
