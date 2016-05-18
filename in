@@ -11,3 +11,4 @@ STM32F030x6
 cortex-m0
 thumb
 soft
+48000000

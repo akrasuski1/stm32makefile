@@ -122,6 +122,8 @@ read -p "Which mode to use - thumb or arm: " THUMB
 sed -i "s/REPLACE_ME_THUMB/-m$THUMB/g" $PROJ/makefile
 read -p "Which float abi to use: soft, softfp or hard: " FLOAT
 sed -i "s/REPLACE_ME_FLOAT/-mfloat-abi=$FLOAT/g" $PROJ/makefile
+read -p "What is the clock frequency (FCPU) in Hz: " CLOCK
+sed -i "s/REPLACE_ME_FCPU/-DFCPU=$CLOCK/g" $PROJ/makefile
 
 echo "Patching core file..."
 sed -i "s/\"core_cmInstr.h\"/<cmsis_gcc.h>/g" $PROJ/inc/$CORE
